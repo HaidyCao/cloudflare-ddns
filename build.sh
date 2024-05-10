@@ -37,9 +37,9 @@ function build() {
     CGO_ENABLED=0 GOOS=$1 GOARCH=$2 go build -ldflags '-w -s' main.go json_util.go
   fi
   if [ "$1" == "windows" ]; then
-    mv main.exe "build/$1_$2_godaddy-ddns.exe"
+    mv main.exe "build/$1_$2_cloudflare-ddns.exe"
   else
-    mv main "build/$1_$2_godaddy-ddns"
+    mv main "build/$1_$2_cloudflare-ddns"
   fi
 }
 
