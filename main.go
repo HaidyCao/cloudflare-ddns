@@ -169,22 +169,22 @@ func updateIp() {
 		return
 	}
 
-	//var hasCurrentIp = false
+	var hasCurrentIp = false
 	dnsRecordId := ""
 	for _, record := range respBody.Result {
 		log.Printf("remote ip = %s", record.Content)
 
 		if record.Content == ip && record.Type == domainType {
-			//hasCurrentIp = true
+			hasCurrentIp = true
 			dnsRecordId = record.Id
 			break
 		}
 	}
 
-	//if hasCurrentIp {
-	//	log.Println("No update required")
-	//	return
-	//}
+	if hasCurrentIp {
+		log.Println("No update required")
+		return
+	}
 
 	putBody := PutRecord{
 		Content: ip,
