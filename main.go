@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
 )
@@ -62,7 +61,7 @@ func main() {
 	flag.IntVar(&ttl, "T", 60, "TTL")
 	flag.StringVar(&url, "u", "http://api.ipify.org", "default check url")
 	flag.StringVar(&newIp, "N", "", "new ip")
-	flag.IntVar(&interval, "i", 5*60, "interval")
+	flag.IntVar(&interval, "i", -1, "interval")
 	flag.StringVar(&urlParseType, "p", UrlParseTypeFull, "url parse type: full(default) or json")
 	flag.StringVar(&urlJsonPath, "j", "", "url json path")
 	flag.StringVar(&zoneId, "z", "", "cloudflare zone id")
@@ -74,6 +73,10 @@ func main() {
 		return
 	}
 
+	if interval < 0 {
+		updateIp()
+		return
+	}
 	ticker := time.NewTicker(time.Duration(interval) * time.Second) // 创建一个每隔5分钟触发一次的定时器
 	defer ticker.Stop()                                             // 确保在函数返回时停止定时器
 
@@ -90,10 +93,10 @@ func main() {
 func updateIp() {
 	var ip string
 	if newIp == "" {
-		log.Println(domainType, name, ttl, url, zoneId)
+		fmt.Println(domainType, name, ttl, url, zoneId)
 		resp, err := http.Get(url)
 		if err != nil {
-			log.Println(err)
+			fmt.Println(err)
 			return
 		}
 		defer func() {
@@ -102,7 +105,7 @@ func updateIp() {
 
 		ipBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
-			log.Println(err)
+			fmt.Println(err)
 			return
 		}
 		if urlParseType == UrlParseTypeFull {
@@ -130,12 +133,12 @@ func updateIp() {
 		ip = newIp
 	}
 
-	log.Printf("current ip = %s", ip)
+	fmt.Printf("current ip = %s\n", ip)
 
 	dnsRecordsUrl := fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records", zoneId)
 	request, err := http.NewRequest("GET", dnsRecordsUrl, nil)
 	if err != nil {
-		log.Println(err)
+		fmt.Println(err)
 		return
 	}
 
@@ -144,7 +147,7 @@ func updateIp() {
 
 	remoteResp, err := http.DefaultClient.Do(request)
 	if err != nil {
-		log.Println(err)
+		fmt.Println(err)
 		return
 	}
 	defer func() {
@@ -153,36 +156,41 @@ func updateIp() {
 
 	remoteBytes, err := io.ReadAll(remoteResp.Body)
 	if err != nil {
-		log.Println(err)
+		fmt.Println(err)
 		return
 	}
 
 	var respBody RecordResponse
 	err = json.Unmarshal(remoteBytes, &respBody)
 	if err != nil {
-		log.Printf("respBody = %s, err = %v", remoteBytes, err)
+		fmt.Printf("respBody = %s, err = %v\n", remoteBytes, err)
 		return
 	}
 
+	// log.Printf("respBody = %s", remoteBytes)
 	if !respBody.Success {
-		log.Printf("request failed: respBody = %s", remoteBytes)
+		fmt.Printf("request failed: %s\n", remoteBytes)
 		return
 	}
 
 	var hasCurrentIp = false
 	dnsRecordId := ""
-	for _, record := range respBody.Result {
-		log.Printf("remote ip = %s", record.Content)
 
-		if record.Content == ip && record.Type == domainType {
+	for _, record := range respBody.Result {
+		if record.Name == name && record.Type == domainType {
+			fmt.Printf("remote ip = %v\n", record)
+			if record.Content == ip {
+				fmt.Println("No update required: ip not changed")
+				return
+			}
 			hasCurrentIp = true
 			dnsRecordId = record.Id
 			break
 		}
 	}
 
-	if hasCurrentIp {
-		log.Println("No update required")
+	if !hasCurrentIp {
+		fmt.Println("No update required: not found ip record")
 		return
 	}
 
@@ -196,15 +204,16 @@ func updateIp() {
 
 	putBodyBytes, err := json.Marshal(putBody)
 	if err != nil {
-		log.Println(err)
+		fmt.Println(err)
 		return
 	}
-	log.Println(string(putBodyBytes))
+	fmt.Print("putBody = ")
+	fmt.Println(string(putBodyBytes))
 
 	updateUrl := fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records/%s", zoneId, dnsRecordId)
 	updateRequest, err := http.NewRequest("PUT", updateUrl, bytes.NewReader(putBodyBytes))
 	if err != nil {
-		log.Println(err)
+		fmt.Println(err)
 		return
 	}
 
@@ -213,37 +222,37 @@ func updateIp() {
 
 	resultResp, err := http.DefaultClient.Do(updateRequest)
 	if err != nil {
-		log.Println(err)
+		fmt.Println(err)
 		return
 	}
 
 	if resultResp.StatusCode == 200 {
 		remoteBytes, err = io.ReadAll(resultResp.Body)
 		if err != nil {
-			log.Println(err)
+			fmt.Println(err)
 			return
 		}
 
 		var result OverwriteRecordResponse
 		err = json.Unmarshal(remoteBytes, &result)
 		if err != nil {
-			log.Printf("respBody = %s, err = %v", remoteBytes, err)
+			fmt.Printf("respBody = %s, err = %v\n", remoteBytes, err)
 			return
 		}
 
 		if result.Success {
-			log.Printf("update success")
+			fmt.Println("update success")
 		} else {
-			log.Printf("update failed: %s", remoteBytes)
+			fmt.Printf("update failed: %s\n", remoteBytes)
 		}
 		return
 	}
 
 	resultBodyBytes, err := io.ReadAll(resultResp.Body)
 	if err != nil {
-		log.Println(err)
+		fmt.Println(err)
 		return
 	}
 
-	log.Println("update failed: " + string(resultBodyBytes))
+	fmt.Println("update failed: " + string(resultBodyBytes))
 }
